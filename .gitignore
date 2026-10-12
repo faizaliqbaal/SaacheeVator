@@ -1,0 +1,37 @@
+# Virtual environments
+sadtalker_env/
+.venv/
+env/
+venv/
+
+# Heavy AI model checkpoints (download via setup script)
+SadTalker/checkpoints/
+SadTalker/gfpgan/
+gfpgan/
+*.safetensors
+*.pth
+*.pth.tar
+*.dat
+*.bin
+*.mat
+
+# Temporary build & runtime folders
+output/talking_temp/
+output/talking_avatar/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Large generated video outputs (keep metadata, subtitles, and badges)
+output/*.mp4
+
+# SadTalker sample media assets
+SadTalker/examples/
+SadTalker/docs/*.gif
+
+# Environment variables & secrets
+.env
+.env.*
+*.token
+*.key
