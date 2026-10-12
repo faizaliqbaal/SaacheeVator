@@ -34,6 +34,10 @@ output/*.mp4
 SadTalker/examples/
 SadTalker/docs/*.gif
 
+# LivePortrait weights and directory
+LivePortrait/
+output/*.wav
+
 # Environment variables & secrets
 .env
 .env.*
