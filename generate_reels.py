@@ -38,6 +38,7 @@ REELS_DATABASE = [
         "image": "persona_empathy.jpg",
         "hook": "TO THE MAN FIGHTING IN SILENCE",
         "script": "I know you are carrying a lot right now. You show up for everyone else, you handle your business, and you rarely complain. But taking a breath is not quitting. You are stronger than your heaviest days, and you are doing better than you think. Keep going.",
+        "diffusion_prompt": "Vertical 9:16 photorealistic cinematic video of the 22yo modern Indian woman in warm cozy lounge, speaking earnestly directly to camera. Natural organic hand gestures with open palms emphasizing her points, gentle head nods and tilts, empathetic micro-expressions, subtle shoulder breathing, photorealistic human physics, 4k 60fps.",
         "caption": """Most men fight their heaviest wars without telling a single soul. 👑
 
 You don't have to carry the whole world on your shoulders every single day. Taking a moment to breathe and reset isn't quitting—it's preparing for the next victory.
@@ -56,6 +57,7 @@ Save this for when you need a reset.
         "image": "persona_fitness.jpg",
         "hook": "MOTIVATION FADES. STANDARDS DON'T.",
         "script": "Stop waiting until you feel like it. The version of you that reaches your goals does not negotiate with the alarm clock or his excuses. Discipline is the ultimate form of self-respect. Get up, lock in, and handle your work today.",
+        "diffusion_prompt": "Vertical 9:16 cinematic video of the 22yo modern Indian woman in chic gym activewear at sunrise, speaking with confident focused intensity. Natural assertive hand gestures, firm confident nods, subtle head movement, determined warm smile, photorealistic fluid human motion, 4k.",
         "caption": """You don't need another motivational quote. You need a higher standard. 🔥
 
 The man who shows up even when he doesn't feel like it will always beat the man who only works when inspired. 
@@ -74,6 +76,7 @@ Double tap if you're executing today.
         "image": "persona_lifestyle.jpg",
         "hook": "BUILD IN SILENCE. LET RESULTS SPEAK.",
         "script": "You do not need to beg for respect or chase validation. Build your skills, protect your peace, and honor your own boundaries. When you become a man who respects himself, the right people and opportunities follow naturally.",
+        "diffusion_prompt": "Vertical 9:16 cinematic lifestyle video of the 22yo modern Indian woman in luxury cafe setting, speaking calmly about standards. Natural conversational hand gestures, glancing thoughtfully, smiling warmly, relaxed elegant posture, fluid organic motion, 4k.",
         "caption": """A high-value life isn't built on loud words—it's built on quiet execution. 📈
 
 Stop trying to convince people of your worth. Build your foundation, stack your small wins, and let your results do all the talking.
@@ -311,11 +314,50 @@ def render_talking_avatar(
         raise RuntimeError(f"FFmpeg compositing failed:\n{res_comp.stderr}")
 
 
-async def process_single_reel(reel_data: dict, handle: str = "@mindset.elevate", lip_sync: bool = False):
+def render_diffusion_video(
+    video_path: Path,
+    audio_path: Path,
+    sub_path: Path,
+    overlay_path: Path,
+    output_mp4: Path,
+    duration: float
+):
+    """Composites a realistic diffusion video (from Kling, Runway, or Hailuo) with synchronized audio, hook card & subtitles."""
+    sub_rel = os.path.relpath(sub_path, start=os.getcwd()).replace("\\", "/")
+    sub_filter = (
+        f"subtitles={sub_rel}:force_style="
+        "'FontName=Liberation Sans,FontSize=24,PrimaryColour=&H00FFFFFF,"
+        "OutlineColour=&H00000000,BorderStyle=3,Outline=2,Shadow=2,Alignment=2,MarginV=300'"
+    )
+    filter_complex = (
+        f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920[bg];"
+        f"[bg][1:v]overlay=0:0[with_hook];"
+        f"[with_hook]{sub_filter}[finalv]"
+    )
+    cmd = [
+        str(BASE_DIR / "sadtalker_env" / "bin" / "ffmpeg"), "-y",
+        "-stream_loop", "-1",
+        "-i", str(video_path),
+        "-i", str(overlay_path),
+        "-i", str(audio_path),
+        "-filter_complex", filter_complex,
+        "-map", "[finalv]",
+        "-map", "2:a",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "192k",
+        "-t", f"{duration + 0.3:.2f}",
+        str(output_mp4)
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        raise RuntimeError(f"FFmpeg video compositing failed:\n{res.stderr}")
+
+
+async def process_single_reel(reel_data: dict, handle: str = "@mindset.elevate", lip_sync: bool = False, input_video: str = None):
     reel_id = reel_data["id"]
-    suffix = "_talking" if lip_sync else ""
+    suffix = "_realistic" if input_video else ("_talking" if lip_sync else "")
     print(f"\n==========================================")
-    print(f"▶ Processing Reel: {reel_id} ({reel_data['theme']}) [LipSync={lip_sync}]")
+    print(f"▶ Processing Reel: {reel_id} ({reel_data['theme']})")
     print(f"==========================================")
 
     img_file = ASSETS_DIR / reel_data["image"]
@@ -353,8 +395,18 @@ async def process_single_reel(reel_data: dict, handle: str = "@mindset.elevate",
         output_path=overlay_file
     )
 
-    # Step 4: Render MP4 with FFmpeg (Lip-sync or Ken Burns animation)
-    if lip_sync:
+    # Step 4: Render MP4 with FFmpeg
+    if input_video:
+        print(f"[4/4] Compositing photorealistic diffusion video ({input_video})...")
+        render_diffusion_video(
+            video_path=Path(input_video),
+            audio_path=audio_file,
+            sub_path=sub_file,
+            overlay_path=overlay_file,
+            output_mp4=output_mp4,
+            duration=duration
+        )
+    elif lip_sync:
         print(f"[4/4] Rendering realistic GPU-accelerated talking face with SadTalker...")
         render_talking_avatar(
             image_path=img_file,
@@ -382,11 +434,12 @@ async def process_single_reel(reel_data: dict, handle: str = "@mindset.elevate",
         "id": reel_id,
         "theme": reel_data["theme"],
         "video_file": str(output_mp4),
-        "lip_sync_talking_head": lip_sync,
+        "mode": "diffusion_video" if input_video else ("sadtalker_gpu" if lip_sync else "ken_burns"),
         "duration_seconds": round(duration, 2),
         "resolution": "1080x1920 (9:16)",
         "hook": reel_data["hook"],
         "voiceover_script": reel_data["script"],
+        "diffusion_prompt": reel_data.get("diffusion_prompt", ""),
         "instagram_caption": reel_data["caption"],
         "suggested_audio": "Trending Piano / Lo-Fi ambient audio lowered to 15% volume"
     }
@@ -397,25 +450,49 @@ async def process_single_reel(reel_data: dict, handle: str = "@mindset.elevate",
     return metadata
 
 
+def print_diffusion_prompts():
+    print("\n" + "="*70)
+    print("🎬 PHOTOREALISTIC DIFFUSION VIDEO PROMPT CHEAT-SHEET (KLING / RUNWAY / HAILUO)")
+    print("="*70)
+    print("\nHow to use:")
+    print("1. Go to Kling AI (https://klingai.com) or Runway Gen-3 (https://app.runwayml.com)")
+    print("2. Choose 'Image to Video' (Upload the corresponding reference image from assets/)")
+    print("3. Paste the prompt below and generate a 5s-10s clip.")
+    print("4. Download the video and run: python generate_reels.py --index X --input-video your_video.mp4\n")
+    
+    for i, reel in enumerate(REELS_DATABASE):
+        print(f"\n--- [Reel {i}: {reel['theme']}] ---")
+        print(f"📷 Base Image: assets/{reel['image']}")
+        print(f"💡 On-Screen Hook: {reel['hook']}")
+        print(f"✨ Diffusion Prompt:\n{reel['diffusion_prompt']}")
+    print("\n" + "="*70 + "\n")
+
+
 async def main():
     parser = argparse.ArgumentParser(description="AI Instagram Reels Batch Generator")
     parser.add_argument("--batch", action="store_true", help="Generate all predefined sample reels")
     parser.add_argument("--index", type=int, default=0, help="Generate a specific reel index (0, 1, or 2)")
     parser.add_argument("--handle", type=str, default="@mindset.elevate", help="Instagram handle watermark")
-    parser.add_argument("--lip-sync", action="store_true", help="Enable GPU-accelerated realistic talking lip-sync animation (SadTalker)")
+    parser.add_argument("--lip-sync", action="store_true", help="Enable GPU-accelerated talking lip-sync animation (SadTalker)")
+    parser.add_argument("--input-video", type=str, default=None, help="Path to photorealistic diffusion video (Kling/Runway/Hailuo) to package")
+    parser.add_argument("--prompts", action="store_true", help="Print tested prompt cheat-sheet for Kling AI & Runway Gen-3")
     args = parser.parse_args()
+
+    if args.prompts:
+        print_diffusion_prompts()
+        return
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     if args.batch:
         results = []
         for reel in REELS_DATABASE:
-            res = await process_single_reel(reel, handle=args.handle, lip_sync=args.lip_sync)
+            res = await process_single_reel(reel, handle=args.handle, lip_sync=args.lip_sync, input_video=args.input_video)
             results.append(res)
         print("\n🎉 ALL BATCH REELS GENERATED SUCCESSFULLY!")
     else:
         reel = REELS_DATABASE[args.index]
-        await process_single_reel(reel, handle=args.handle, lip_sync=args.lip_sync)
+        await process_single_reel(reel, handle=args.handle, lip_sync=args.lip_sync, input_video=args.input_video)
 
 
 if __name__ == "__main__":
