@@ -13,7 +13,11 @@ gfpgan/
 *.pth.tar
 *.dat
 *.bin
-*.mat
+checkpoints/*.mat
+SadTalker/checkpoints/**/*.mat
+
+# Allow essential config .mat files
+!SadTalker/src/**/*.mat
 
 # Temporary build & runtime folders
 output/talking_temp/
